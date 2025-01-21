@@ -1,0 +1,9 @@
+#pragma once
+
+#define AES_KEY_SIZE 0x20
+#define NG_KEYS_SIZE1 101
+#define NG_KEYS_SIZE2 0x110
+#define LUT_SIZE 0x100
+#define DECRYPT_TABLES_SIZE1 17
+#define DECRYPT_TABLES_SIZE2 16
+#define DECRYPT_TABLES_SIZE3 256
