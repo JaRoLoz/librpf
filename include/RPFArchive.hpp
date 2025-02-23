@@ -13,6 +13,7 @@
 #include "RPFEntry.hpp"
 #include "RPFDirEntry.hpp"
 #include "RPFFileEntry.hpp"
+#include "RPFFrameworkFileEntry.hpp"
 
 class RPFArchive
 {
@@ -21,7 +22,6 @@ public:
     RPFArchive(const MMap *mmap, const std::string_view &name, const std::shared_ptr<Keyring> keyring);
     ~RPFArchive();
     std::string ToString() const;
-    std::string GetEntryName(const RPFEntry *entry) const;
     std::vector<RPFEntry *> GetDirEntries(const RPFDirEntry *entry) const;
     uint8_t *ExtractEntry(const RPFFileEntry *entry) const;
     RPFArchive *GetChildArchive(const RPFFileEntry *entry) const;
@@ -62,8 +62,8 @@ std::optional<T *> RPFArchive::GetEntryWithPath(std::span<std::string_view> path
     auto entries = this->GetDirEntries(rootDir);
     for (auto entry : entries)
     {
-        auto entryName = this->GetEntryName(entry);
-        if (entry != nullptr && path[0] == entryName && entry->GetType() == searchedEntryType)
+        auto aa = entry->GetName();
+        if (entry != nullptr && path[0] == entry->GetName() && entry->GetType() == searchedEntryType)
         {
             searchedEntry = entry;
         }

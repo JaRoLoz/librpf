@@ -10,7 +10,7 @@ RPFArchive::RPFArchive(const std::filesystem::path& path, const std::string_view
 {
 	this->GetEntries();
 	this->GetNameTable();
-	this->Root = RPFDirEntry::s_FromBytes(this->m_EntriesData);
+	this->Root = RPFDirEntry::s_FromBytes(this->m_EntriesData, this->m_NameTable);
 }
 
 RPFArchive::RPFArchive(const MMap* mmap, const std::string_view& name, const std::shared_ptr<Keyring> keyring) :
@@ -23,7 +23,7 @@ RPFArchive::RPFArchive(const MMap* mmap, const std::string_view& name, const std
 {
 	this->GetEntries();
 	this->GetNameTable();
-	this->Root = RPFDirEntry::s_FromBytes(this->m_EntriesData);
+	this->Root = RPFDirEntry::s_FromBytes(this->m_EntriesData, this->m_NameTable);
 }
 
 RPFArchive::~RPFArchive()
@@ -54,22 +54,6 @@ std::string RPFArchive::ToString() const
 	return str;
 }
 
-std::string RPFArchive::GetEntryName(const RPFEntry* entry) const
-{
-	uint8_t* entryNameStart = this->m_NameTable + entry->GetNameOffset();
-	std::string name;
-
-	while (true)
-	{
-		uint8_t c = *entryNameStart++;
-		if (c == '\0')
-			break;
-		name += c;
-	}
-
-	return name;
-}
-
 std::vector<RPFEntry*> RPFArchive::GetDirEntries(const RPFDirEntry* entry) const
 {
 	std::vector<RPFEntry*> entries;
@@ -79,7 +63,7 @@ std::vector<RPFEntry*> RPFArchive::GetDirEntries(const RPFDirEntry* entry) const
 	for (size_t i = 0; i < entry->EntryCount; i++)
 	{
 		uint8_t* entryPtr = firstEntryPtr + i * RPF_ENTRY_SIZE;
-		entries.push_back(RPFEntry::s_FromBytes(entryPtr));
+		entries.push_back(RPFEntry::s_FromBytes(entryPtr, static_cast<const uint8_t*>(this->m_Map->Data), this->m_NameTable, this->m_EntriesData));
 	}
 
 	return entries;
@@ -132,82 +116,103 @@ void RPFArchive::GetNameTable()
 
 uint8_t* RPFArchive::ExtractEntry(const RPFFileEntry* entry) const
 {
-    uint8_t* entryDataStart = (uint8_t*)this->m_Map->Data + 512 * entry->Offset;
-	std::string name = this->GetEntryName(entry);
+	uint8_t* entryDataStart = (uint8_t*)this->m_Map->Data + 512 * entry->Offset;
+	size_t internalSize = entry->CompressedSize;
 	uint8_t* entryData = nullptr;
 
-	if (name.ends_with(".rpf"))
+	if (entry->Name.ends_with(".rpf"))
 	{
 		entryData = new uint8_t[entry->Size];
 		memcpy(entryData, entryDataStart, entry->Size);
 		return entryData;
 	}
 
-	switch (this->m_Header.Encryption)
+	if (entry->IsFrameworkFile)
 	{
-	case ENCRYPTION_NG:
-	{
-		entryData = this->m_Keyring->DecryptNG(entryDataStart, entry->InternalSize(), name, entry->Size);
-		break;
-	}
-	case ENCRYPTION_AES:
-	{
-		std::cout << "AES encryption is not supported." << std::endl;
-		return nullptr;
-	}
-	default:
-	{
-		entryData = new uint8_t[entry->InternalSize()];
-		memcpy(entryData, entryDataStart, entry->InternalSize());
-		break;
-	}
+		entryDataStart += FRAMEWORK_FILE_OFFSET;
+		internalSize -= FRAMEWORK_FILE_OFFSET;
 	}
 
-    if (entry->IsCompressed())
-    {
-        z_stream stream;
-        memset(&stream, 0, sizeof(stream));
-		uint8_t* inflatedData = new uint8_t[entry->Size];
+	if (!entry->IsFrameworkFile) // apparently framework files arent encrypted kekw
+	{
+		switch (this->m_Header.Encryption)
+		{
+		case ENCRYPTION_NG:
+		{
+			entryData = this->m_Keyring->DecryptNG(entryDataStart, internalSize, entry->Name, entry->Size);
+			break;
+		}
+		case ENCRYPTION_AES:
+		{
+			std::cout << "AES encryption is not supported." << std::endl;
+			return nullptr;
+		}
+		default:
+		{
+			entryData = new uint8_t[internalSize];
+			memcpy(entryData, entryDataStart, internalSize);
+			break;
+		}
+		}
+	}
+	else
+	{
+		entryData = new uint8_t[internalSize];
+		memcpy(entryData, entryDataStart, internalSize);
+	}
 
-        stream.next_in = entryData;
-        stream.avail_in = entry->InternalSize();
-        stream.next_out = inflatedData;
-        stream.avail_out = entry->Size;
+	if (entry->IsCompressed && (!entry->IsFrameworkFile || (entry->IsFrameworkFile && INFLATE_FRAMEWORK_FILES)))
+	{
+		size_t inflatedSize = entry->Size;
 
-        int init_result = inflateInit2(&stream, -MAX_WBITS);
-        if (init_result != Z_OK)
-        {
-            delete[] inflatedData;
+		if (entry->IsFrameworkFile)
+		{
+			inflatedSize = static_cast<const RPFFrameworkFileEntry*>(entry)->SystemSize;
+		}
+
+		z_stream stream;
+		memset(&stream, 0, sizeof(stream));
+		uint8_t* inflatedData = new uint8_t[inflatedSize];
+
+		stream.next_in = entryData;
+		stream.avail_in = internalSize;
+		stream.next_out = inflatedData;
+		stream.avail_out = inflatedSize;
+
+		int init_result = inflateInit2(&stream, -MAX_WBITS);
+		if (init_result != Z_OK)
+		{
+			delete[] inflatedData;
 			delete[] entryData;
-            return nullptr;
-        }
+			return nullptr;
+		}
 
-        int inflate_result = 0;
-        do {
-            inflate_result = inflate(&stream, Z_NO_FLUSH);
+		int inflate_result = 0;
+		do {
+			inflate_result = inflate(&stream, Z_NO_FLUSH);
 
-            if (inflate_result < 0) {
-                inflateEnd(&stream);
-                delete[] inflatedData;
+			if (inflate_result < 0) {
+				inflateEnd(&stream);
+				delete[] inflatedData;
 				delete[] entryData;
-                return nullptr;
-            }
-        } while (inflate_result != Z_STREAM_END);
+				return nullptr;
+			}
+		} while (inflate_result != Z_STREAM_END);
 
-        inflateEnd(&stream);
+		inflateEnd(&stream);
 
 		delete[] entryData;
 		entryData = inflatedData;
-    }
+	}
 
-    return entryData;
+	return entryData;
 }
 
 RPFArchive* RPFArchive::GetChildArchive(const RPFFileEntry* entry) const
 {
 	size_t archiveOffset = 512 * entry->Offset;
 	MMap* mmap = this->m_Map->Reduce(archiveOffset, entry->Size);
-	return new RPFArchive(mmap, this->GetEntryName(entry), this->m_Keyring);
+	return new RPFArchive(mmap, entry->GetName(), this->m_Keyring);
 }
 
 
