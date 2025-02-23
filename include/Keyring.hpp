@@ -8,6 +8,7 @@
 class Keyring
 {
 public:
+    Keyring();
     Keyring(const uint8_t *aesKey, const uint8_t *ngKeys, const uint8_t *lut, const uint32_t *decryptTables);
     uint8_t *DecryptNG(const uint8_t *encryptedData, const size_t dataSize, const std::string_view &name, const size_t entrySize);
 
