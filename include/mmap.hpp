@@ -11,7 +11,7 @@ public:
     ~MMap();
     MMap *Reduce(uint32_t startOffset, size_t size) const;
     static MMap s_FromFile(const std::filesystem::path &path, uint32_t startOffset = 0, size_t size = 0);
-    static MMap *s_FromFileH(const std::filesystem::path &path, uint32_t startOffset = 0, size_t size = 0);
+    static MMap *s_FromFileHeap(const std::filesystem::path &path, uint32_t startOffset = 0, size_t size = 0);
 
 private:
     HANDLE m_FileHandle;

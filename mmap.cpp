@@ -22,7 +22,7 @@ MMap MMap::s_FromFile(const std::filesystem::path& path, uint32_t startOffset, s
 	return MMap(hFile, startOffset, size);
 }
 
-MMap* MMap::s_FromFileH(const std::filesystem::path& path, uint32_t startOffset, size_t size)
+MMap* MMap::s_FromFileHeap(const std::filesystem::path& path, uint32_t startOffset, size_t size)
 {
 	HANDLE hFile = CreateFileW(
 		path.c_str(),

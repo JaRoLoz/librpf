@@ -3,7 +3,7 @@
 RPFArchive::RPFArchive(const std::filesystem::path& path, const std::string_view& name, const std::shared_ptr<Keyring> keyring) :
 	m_EntriesData(nullptr),
 	m_NameTable(nullptr),
-	m_Map(MMap::s_FromFileH(path)),
+	m_Map(MMap::s_FromFileHeap(path)),
 	m_Header(RPFHeader::s_FromBytes((uint8_t*)m_Map->Data)),
 	m_Name(name),
 	m_Keyring(keyring)
